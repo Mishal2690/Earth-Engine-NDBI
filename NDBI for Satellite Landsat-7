@@ -1,0 +1,51 @@
+var rectangle = ee.Geometry.Rectangle([72.43405536614745,22.94650980058827,72.69978717767088,23.08175654301984]);
+
+Map.centerObject(rectangle);
+var ahmd = rectangle;
+
+var cloudMaskL457 = function(image) {
+  var qa = image.select('pixel_qa');
+  // If the cloud bit (5) is set and the cloud confidence (7) is high
+  // or the cloud shadow bit is set (3), then it's a bad pixel.
+  var cloud = qa.bitwiseAnd(1 << 5)
+                  .and(qa.bitwiseAnd(1 << 7))
+                  .or(qa.bitwiseAnd(1 << 3));
+  // Remove edge pixels that don't occur in all bands
+  var mask2 = image.mask().reduce(ee.Reducer.min());
+  return image.updateMask(cloud.not()).updateMask(mask2);
+};
+
+var landsat7 = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
+                  .filterDate('2000-01-01', '2000-06-01')
+                  .map(cloudMaskL457);
+                  
+// remove the clouds
+var landsat_nocloud = landsat7.map(cloudMaskL457);
+// take the median
+var landsatmedian = landsat_nocloud.median();
+// the normalized difference bare index
+var ndbi = landsatmedian.normalizedDifference(['B5', 'B4']);
+
+// Set the threshold for the indices
+var bareThreshold = -0.1;
+var vegetationThreshold = 0.30;
+var waterThreshold = 0.2;
+
+//Add the different layers to the canvas
+Map.addLayer(ahmd);
+
+// show the urban area
+var ndbi_th = ndbi.gt(bareThreshold);
+var myndbi = ndbi_th.updateMask(ndbi_th).clip(ahmd);
+//var ndbi_viz = {min: -1, max: 1,palette:['00ff00', 'ff0000']}
+var ndbi_viz = {palette:['ff0000']}
+
+Map.addLayer(myndbi, ndbi_viz, 'Urban1');
+
+Export.image.toDrive({
+  image : landsat7.mean() ,
+  description : 'ahmd',
+  scale : 30,
+  region : ahmd,
+  maxPixels : 403727870
+});
